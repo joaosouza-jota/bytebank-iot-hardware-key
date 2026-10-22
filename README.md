@@ -7,7 +7,8 @@ Projeto Prático da AV2 da disciplina **BD015 (Algoritmo e Estrutura de Dados)**
 ## Squad
 
 - João Vitor Souza
-- Gabriel Costa
+- Renan Rocha
+- Vinicius Mendes
 
 ## Como funciona
 
