@@ -1,0 +1,53 @@
+# ByteBank Hardware Key
+
+Token físico de autenticação em duas etapas (MFA) para transferências PIX de alto valor.
+
+Projeto Prático da AV2 da disciplina **BD015 (Algoritmo e Estrutura de Dados)** da CESAR School, ministrada pelo Prof. Fernando Ferreira de Carvalho. A equipe implementa o **Módulo 5 do Ecossistema ByteBank IoT**: um ESP32 programado em MicroPython que funciona como chave física de segurança. Todo PIX acima de R$ 10.000,00 fica retido no banco de dados e só é liberado depois que o titular confirma a operação no token.
+
+## Squad
+
+- João Vitor Souza
+- Gabriel Costa
+
+## Como funciona
+
+1. O cliente solicita um PIX acima de R$ 10.000,00. O backend grava a transferência com status `RETIDO` e gera um código OTP de 6 dígitos com validade de 60 segundos.
+2. O ESP32 consulta o backend, exibe o código no display OLED e toca o buzzer.
+3. O titular informa o código no dashboard e aperta o botão físico de confirmação no token.
+4. O backend valida o código em O(1) na tabela hash de tokens. Se estiver correto, a transferência é liberada e o débito e o crédito são gravados numa única transação no banco.
+5. Cada código errado entra na fila de tentativas. Três falhas em cinco minutos bloqueiam a conta e disparam o alarme do token.
+
+## Componentes
+
+| Componente | Função |
+|---|---|
+| ESP32 DevKit | Microcontrolador com Wi-Fi, roda o MicroPython |
+| Display OLED SSD1306 (I2C) | Exibe o código OTP e o status da operação |
+| Botão (push button) | Confirmação física da transferência |
+| Buzzer | Aviso de código novo e alarme de bloqueio |
+
+## Estrutura do repositório
+
+| Pasta | Conteúdo | Entrega |
+|---|---|---|
+| `esp32/` | `boot.py` (conexão Wi-Fi) e `main.py` (sensores e atuadores) | 29/10 e 05/11 |
+| `backend/` | API em FastAPI com a tabela hash de tokens e a fila de tentativas | 12/11 |
+| `database/` | `schema.sql` com as tabelas e a carga inicial de teste | 12/11 |
+| `dashboard/` | Aplicação Streamlit de monitoramento e controle remoto | 19/11 |
+
+## Como executar
+
+### Conexão Wi-Fi do ESP32 (`boot.py`)
+
+1. Copie `esp32/config_exemplo.py` para `esp32/config.py` e preencha o nome e a senha da rede. O `config.py` fica fora do Git para que a senha não vá para o repositório público.
+2. A rede precisa ser **2,4 GHz**: o ESP32 não enxerga redes 5 GHz. No hotspot do iPhone, ative *Ajustes → Acesso Pessoal → Maximizar Compatibilidade*.
+3. Abra o **Thonny**, conecte o ESP32 pelo USB e selecione o interpretador *MicroPython (ESP32)*.
+   - **macOS:** a porta aparece como `/dev/cu.usbserial-XXXX` ou `/dev/cu.wchusbserial-XXXX`. Se não aparecer, troque o cabo: muitos cabos só carregam e não transmitem dados.
+   - **Windows:** a porta aparece como `COM3`, `COM4`, etc. no Gerenciador de Dispositivos.
+4. Envie `boot.py` e `config.py` para a placa (*Arquivo → Salvar como → Dispositivo MicroPython*) e reinicie o ESP32. O terminal do Thonny mostra o IP recebido.
+
+### Teste sem a placa (Wokwi)
+
+1. Crie um projeto em [wokwi.com](https://wokwi.com) com o modelo *MicroPython on ESP32*.
+2. Cole o conteúdo de `boot.py` e crie o `config.py` com a rede do simulador: `WIFI_SSID = "Wokwi-GUEST"` e `WIFI_SENHA = ""`.
+3. Inicie a simulação. O console mostra a conexão e o IP.
