@@ -100,9 +100,11 @@ sequenceDiagram
 | OLED SSD1306 | VCC / GND | 3V3 / GND |
 | OLED SSD1306 | SDA | GPIO 21 |
 | OLED SSD1306 | SCL | GPIO 22 |
-| Botão | Um terminal / outro terminal | GPIO 4 / GND (pull-up interno) |
-| Buzzer | Positivo / negativo | GPIO 15 / GND |
+| Botão | Um terminal / outro terminal | GPIO 15 / GND (pull-up interno: pressionado = 0, solto = 1) |
+| Buzzer | Positivo / negativo | GPIO 4 (PWM, define o tom) / GND |
 | LED interno | | GPIO 2 (indica status da conexão Wi-Fi) |
+
+O botão e a saída PWM usam os mesmos pinos do guia de configuração da disciplina (GPIO 15 e GPIO 4), então o script de exemplo do guia serve para testar o circuito antes do `main.py`.
 
 ## Estrutura do repositório
 
