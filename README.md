@@ -161,3 +161,11 @@ O arquivo `.vscode/settings.json` define `micropico.syncFolder` como `esp32`, en
 1. Crie um projeto em [wokwi.com](https://wokwi.com) com o modelo *MicroPython on ESP32*.
 2. Cole o conteúdo de `boot.py` e crie o `config.py` com a rede do simulador: `WIFI_SSID = "Wokwi-GUEST"` e `WIFI_SENHA = ""`.
 3. Inicie a simulação. O console mostra a conexão e o IP.
+
+## Testes
+
+### Conexão Wi-Fi no simulador (22/10)
+
+O `boot.py` foi executado no Wokwi com a rede `Wokwi-GUEST`. A placa conectou na primeira tentativa e recebeu o IP `10.10.0.2`. Na sequência, o MicroPython executou o `main.py`, o que confirma a ordem de inicialização: primeiro a rede, depois a aplicação.
+
+![Console do Wokwi com o ESP32 conectado ao Wi-Fi](docs/teste-wifi-wokwi.png)
