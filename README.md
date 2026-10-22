@@ -17,6 +17,72 @@ Projeto Prático da AV2 da disciplina **BD015 (Algoritmo e Estrutura de Dados)**
 4. O backend valida o código em O(1) na tabela hash de tokens. Se estiver correto, a transferência é liberada e o débito e o crédito são gravados numa única transação no banco.
 5. Cada código errado entra na fila de tentativas. Três falhas em cinco minutos bloqueiam a conta e disparam o alarme do token.
 
+## Arquitetura
+
+A solução tem quatro camadas. O ESP32 é sempre quem inicia a conversa com o backend via HTTP: ele envia eventos com `POST` e busca códigos e comandos pendentes com `GET`. Assim o token funciona em qualquer rede, sem precisar de IP fixo na placa.
+
+```mermaid
+flowchart LR
+    subgraph EDGE["1. Hardware (ESP32 + MicroPython)"]
+        BTN[Botão de confirmação]
+        OLED[Display OLED]
+        BZ[Buzzer]
+        FILA_LOCAL[(Fila de eventos offline)]
+    end
+
+    subgraph API["2. Backend (Python + FastAPI)"]
+        HASH[(Tabela hash de tokens<br/>validação O 1)]
+        TENT[(Fila de tentativas<br/>rate limiting)]
+        REGRAS[Regras de negócio<br/>PIX acima de R$ 10.000]
+    end
+
+    subgraph BD["3. Persistência (SQLite)"]
+        CONTAS[(contas)]
+        PIX[(transferencias_pix)]
+        LOGS[(logs_autenticacao)]
+    end
+
+    subgraph DASH["4. Dashboard (Streamlit)"]
+        PAINEL[Monitoramento em tempo real]
+        CMD[Comandos remotos]
+    end
+
+    EDGE -- "HTTP / Wi-Fi<br/>JSON via urequests" --> API
+    API -- "código OTP e comandos" --> EDGE
+    API -- "SQL" --> BD
+    BD -- "consultas" --> DASH
+    DASH -- "solicitar PIX, informar código,<br/>desbloquear token" --> API
+```
+
+### Fluxo de uma transferência de alto valor
+
+```mermaid
+sequenceDiagram
+    actor Cliente
+    participant Dashboard
+    participant API as Backend
+    participant BD as Banco de Dados
+    participant Token as ESP32 (Token)
+
+    Cliente->>Dashboard: Solicita PIX de R$ 15.000
+    Dashboard->>API: POST /pix
+    API->>BD: Grava transferência como RETIDO
+    API->>API: Gera OTP e guarda na tabela hash
+    Token->>API: GET /token/pendente
+    API-->>Token: Código OTP
+    Token->>Token: Exibe no OLED e toca o buzzer
+    Cliente->>Dashboard: Digita o código exibido
+    Cliente->>Token: Aperta o botão de confirmação
+    Token->>API: POST /token/confirmar
+    API->>API: Busca O(1) e compara o código
+    alt Código correto
+        API->>BD: Débito + crédito na mesma transação, status LIBERADO
+    else Código errado
+        API->>API: Registra falha na fila de tentativas
+        API->>BD: Após 3 falhas, status BLOQUEADO
+    end
+```
+
 ## Componentes
 
 | Componente | Função |
@@ -25,6 +91,17 @@ Projeto Prático da AV2 da disciplina **BD015 (Algoritmo e Estrutura de Dados)**
 | Display OLED SSD1306 (I2C) | Exibe o código OTP e o status da operação |
 | Botão (push button) | Confirmação física da transferência |
 | Buzzer | Aviso de código novo e alarme de bloqueio |
+
+### Esquema de pinos
+
+| Componente | Pino do componente | Pino do ESP32 |
+|---|---|---|
+| OLED SSD1306 | VCC / GND | 3V3 / GND |
+| OLED SSD1306 | SDA | GPIO 21 |
+| OLED SSD1306 | SCL | GPIO 22 |
+| Botão | Um terminal / outro terminal | GPIO 4 / GND (pull-up interno) |
+| Buzzer | Positivo / negativo | GPIO 15 / GND |
+| LED interno | | GPIO 2 (indica status da conexão Wi-Fi) |
 
 ## Estrutura do repositório
 
