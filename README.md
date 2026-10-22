@@ -117,14 +117,44 @@ O botão e a saída PWM usam os mesmos pinos do guia de configuração da discip
 
 ## Como executar
 
-### Conexão Wi-Fi do ESP32 (`boot.py`)
+### 1. Gravar o firmware MicroPython (só na primeira vez)
+
+A placa vem de fábrica sem MicroPython. Baixe o firmware **ESP32_GENERIC** (`.bin`) em [micropython.org/download](https://micropython.org/download/ESP32_GENERIC/), conecte o ESP32 no USB e descubra a porta:
+
+- **macOS:** `ls /dev/cu.*` mostra `/dev/cu.usbserial-XXXX` ou `/dev/cu.wchusbserial-XXXX`. Se nada aparecer, troque o cabo: muitos cabos só carregam e não transmitem dados.
+- **Windows:** a porta aparece como `COM3`, `COM5`, etc. no Gerenciador de Dispositivos.
+
+Depois, no terminal, troque `PORTA` pela porta encontrada:
+
+```bash
+pip3 install esptool        # no Windows: pip install esptool
+esptool --chip esp32 --port PORTA erase_flash
+esptool --chip esp32 --port PORTA --baud 115200 write_flash -z --flash_mode dio 0x1000 firmware.bin
+```
+
+O `--flash_mode dio` evita que a placa fique reiniciando em loop.
+
+### 2. Configurar a rede
 
 1. Copie `esp32/config_exemplo.py` para `esp32/config.py` e preencha o nome e a senha da rede. O `config.py` fica fora do Git para que a senha não vá para o repositório público.
 2. A rede precisa ser **2,4 GHz**: o ESP32 não enxerga redes 5 GHz. No hotspot do iPhone, ative *Ajustes → Acesso Pessoal → Maximizar Compatibilidade*.
-3. Abra o **Thonny**, conecte o ESP32 pelo USB e selecione o interpretador *MicroPython (ESP32)*.
-   - **macOS:** a porta aparece como `/dev/cu.usbserial-XXXX` ou `/dev/cu.wchusbserial-XXXX`. Se não aparecer, troque o cabo: muitos cabos só carregam e não transmitem dados.
-   - **Windows:** a porta aparece como `COM3`, `COM4`, etc. no Gerenciador de Dispositivos.
-4. Envie `boot.py` e `config.py` para a placa (*Arquivo → Salvar como → Dispositivo MicroPython*) e reinicie o ESP32. O terminal do Thonny mostra o IP recebido.
+
+### 3. Enviar o código para a placa
+
+**VS Code + MicroPico (recomendado)**
+
+1. Instale a extensão **MicroPico** no VS Code e abra a pasta raiz deste repositório.
+2. Rode *MicroPico: Configure Project* na Paleta de Comandos (`Cmd+Shift+P` no Mac, `Ctrl+Shift+P` no Windows) para ativar o autocompletar das bibliotecas `machine` e `network`.
+3. Clique em *Pico/ESP32 Connect* na barra inferior e depois em *MicroPico: Upload project to board*.
+4. Abra o REPL (*MicroPico: Toggle Execution Terminal / REPL*) e reinicie a placa. O terminal mostra o IP recebido.
+
+O arquivo `.vscode/settings.json` define `micropico.syncFolder` como `esp32`, então o upload envia **só a pasta `esp32/`** para a placa, e não o backend nem o dashboard.
+
+**Thonny (alternativa para testes rápidos)**
+
+1. No canto inferior direito, troque o interpretador para *MicroPython (ESP32)* e selecione a porta.
+2. Abra `boot.py` e `config.py` da pasta `esp32/` e salve cada um em *Arquivo → Salvar como → Dispositivo MicroPython*.
+3. Reinicie o ESP32. O Shell mostra o IP recebido.
 
 ### Teste sem a placa (Wokwi)
 
