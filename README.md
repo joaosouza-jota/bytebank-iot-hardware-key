@@ -13,7 +13,7 @@ Projeto Prático da AV2 da disciplina **BD015 (Algoritmo e Estrutura de Dados)**
 ## Como funciona
 
 1. O cliente solicita um PIX acima de R$ 10.000,00. O backend grava a transferência com status `RETIDO` e gera um código OTP de 6 dígitos com validade de 60 segundos.
-2. O ESP32 consulta o backend, exibe o código no display OLED e toca o buzzer.
+2. O ESP32 consulta o backend, exibe o código no display LCD e toca o buzzer.
 3. O titular informa o código no dashboard e aperta o botão físico de confirmação no token.
 4. O backend valida o código em O(1) na tabela hash de tokens. Se estiver correto, a transferência é liberada e o débito e o crédito são gravados numa única transação no banco.
 5. Cada código errado entra na fila de tentativas. Três falhas em cinco minutos bloqueiam a conta e disparam o alarme do token.
@@ -26,7 +26,7 @@ A solução tem quatro camadas. O ESP32 é sempre quem inicia a conversa com o b
 flowchart LR
     subgraph EDGE["1. Hardware (ESP32 + MicroPython)"]
         BTN[Botão de confirmação]
-        OLED[Display OLED]
+        LCD[Display LCD 16x2]
         BZ[Buzzer]
         FILA_LOCAL[(Fila de eventos offline)]
     end
@@ -71,7 +71,7 @@ sequenceDiagram
     API->>API: Gera OTP e guarda na tabela hash
     Token->>API: GET /token/pendente
     API-->>Token: Código OTP
-    Token->>Token: Exibe no OLED e toca o buzzer
+    Token->>Token: Exibe no LCD e toca o buzzer
     Cliente->>Dashboard: Digita o código exibido
     Cliente->>Token: Aperta o botão de confirmação
     Token->>API: POST /token/confirmar
@@ -89,28 +89,36 @@ sequenceDiagram
 | Componente | Função |
 |---|---|
 | ESP32 DevKit | Microcontrolador com Wi-Fi, roda o MicroPython |
-| Display OLED SSD1306 (I2C) | Exibe o código OTP e o status da operação |
+| Display LCD 16x2 com adaptador I2C (PCF8574, endereço `0x27`) | Exibe o código OTP e o status da operação |
 | Botão (push button) | Confirmação física da transferência |
-| Buzzer | Aviso de código novo e alarme de bloqueio |
+| Buzzer ativo | Aviso de código novo e alarme de bloqueio |
 
 ### Esquema de pinos
 
 | Componente | Pino do componente | Pino do ESP32 |
 |---|---|---|
-| OLED SSD1306 | VCC / GND | 3V3 / GND |
-| OLED SSD1306 | SDA | GPIO 21 |
-| OLED SSD1306 | SCL | GPIO 22 |
+| Display LCD (adaptador I2C) | VCC / GND | VIN (5 V) / GND |
+| Display LCD (adaptador I2C) | SDA | GPIO 22 |
+| Display LCD (adaptador I2C) | SCL | GPIO 21 |
 | Botão | Um terminal / outro terminal | GPIO 15 / GND (pull-up interno: pressionado = 0, solto = 1) |
-| Buzzer | Positivo / negativo | GPIO 4 (PWM, define o tom) / GND |
+| Buzzer ativo | Positivo (perna longa) / negativo | GPIO 4 / GND |
 | LED interno | | GPIO 2 (indica status da conexão Wi-Fi) |
 
-O botão e a saída PWM usam os mesmos pinos do guia de configuração da disciplina (GPIO 15 e GPIO 4), então o script de exemplo do guia serve para testar o circuito antes do `main.py`.
+O botão e o buzzer usam os mesmos pinos do guia de configuração da disciplina (GPIO 15 e GPIO 4), então o script de exemplo do guia serve para testar o circuito antes do `main.py`.
+
+Observações da montagem na bancada:
+
+- **O LCD precisa de 5 V.** Com 3,3 V a luz de fundo acende, mas as letras não aparecem. Se mesmo no VIN as letras não surgirem, ajuste o contraste no potenciômetro azul do adaptador I2C.
+- **No adaptador I2C a ordem dos pinos é GND, VCC, SDA, SCL.** Os fios foram ligados com SDA no GPIO 22 e SCL no GPIO 21, e o código usa essa ordem. O endereço `0x27` e os pinos foram confirmados com `i2c.scan()`.
+- **O buzzer é ativo:** tem oscilador interno e apita só de receber tensão, então o código apenas liga e desliga o pino. Ele tem polaridade: invertido, fica mudo.
+- **O ESP32 da equipe tem só 2 pinos GND.** O botão e o buzzer dividem o mesmo GND.
+- Os jumpers são macho-fêmea: a ponta fêmea vai no pino do ESP32 e a macho na protoboard, por isso o ESP32 fica fora da protoboard.
 
 ## Estrutura do repositório
 
 | Pasta | Conteúdo | Entrega |
 |---|---|---|
-| `esp32/` | `boot.py` (conexão Wi-Fi), `main.py` (botão, OLED, buzzer e envio HTTP), `fila_offline.py` (fila circular) e `ssd1306.py` (driver do display) | 29/10 e 05/11 |
+| `esp32/` | `boot.py` (conexão Wi-Fi), `main.py` (botão, display, buzzer e envio HTTP), `fila_offline.py` (fila circular) e `lcd_i2c.py` (driver do display LCD) | 29/10 e 05/11 |
 | `backend/` | `servidor_teste.py` (simula o backend para validar o ESP32). Depois: API em FastAPI com a tabela hash de tokens e a fila de tentativas | 05/11 e 12/11 |
 | `database/` | `schema.sql` com as tabelas e a carga inicial de teste | 12/11 |
 | `dashboard/` | Aplicação Streamlit de monitoramento e controle remoto | 19/11 |
@@ -156,7 +164,7 @@ O arquivo `.vscode/settings.json` define `micropico.syncFolder` como `esp32`, en
 **Thonny (alternativa para testes rápidos)**
 
 1. No canto inferior direito, troque o interpretador para *MicroPython (ESP32)* e selecione a porta.
-2. Abra cada arquivo da pasta `esp32/` (`boot.py`, `config.py`, `main.py`, `fila_offline.py` e `ssd1306.py`) e salve em *Arquivo → Salvar como → Dispositivo MicroPython*, com o mesmo nome.
+2. Abra cada arquivo da pasta `esp32/` (`boot.py`, `config.py`, `main.py`, `fila_offline.py` e `lcd_i2c.py`) e salve em *Arquivo → Salvar como → Dispositivo MicroPython*, com o mesmo nome.
 3. Reinicie o ESP32. O Shell mostra o IP recebido e as mensagens do token.
 
 ### 4. Rodar o servidor de teste e confirmar um PIX
@@ -172,19 +180,19 @@ O `servidor_teste.py` simula o backend até a API real ficar pronta. Ele usa só
    ```
    No macOS, permita quando o sistema perguntar se o Python pode aceitar conexões de entrada. Se negar, o ESP32 não consegue se conectar ao servidor.
 3. Abra `http://localhost:8000/teste/novo-pix` no navegador. O terminal do servidor mostra o PIX retido e o código gerado.
-4. Em até 2 segundos o token apita, e o OLED mostra o valor, o destinatário, o código e a contagem regressiva de 60 segundos.
-5. Aperte o botão. O terminal do servidor mostra o JSON recebido e o resultado `LIBERADO`, e o OLED confirma.
+4. Em até 2 segundos o token apita, e o display mostra o valor e o destinatário na linha de cima (`R$15.000 Bruno`) e o código com a contagem regressiva de 60 segundos na de baixo (`Cod 583921 45s`).
+5. Aperte o botão. O terminal do servidor mostra o JSON recebido e o resultado `LIBERADO`, e o display mostra `PIX LIBERADO`.
 
-Para testar a fila offline, desligue o hotspot depois do passo 4, aperte o botão e religue. O OLED mostra `Confirmacao guardada na fila`, e o envio acontece sozinho quando a rede volta.
+Para testar a fila offline, desligue o hotspot depois do passo 4, aperte o botão e religue. O display mostra `SEM CONEXAO / Guardado fila:1`, e o envio acontece sozinho quando a rede volta.
 
 ### Teste sem a placa (Wokwi)
 
 1. Crie um projeto em [wokwi.com](https://wokwi.com) com o modelo *MicroPython on ESP32*.
-2. Abra a aba `diagram.json` do projeto e copie o valor de `"env"` que aparece em `attrs` da placa (é a versão do MicroPython do simulador). Substitua o conteúdo da aba pelo `wokwi/diagram.json` deste repositório e cole o `"env"` de volta em `attrs` da placa `esp`. O circuito aparece com OLED, botão e buzzer ligados.
-3. Crie os arquivos `boot.py`, `main.py`, `fila_offline.py` e `ssd1306.py` com o conteúdo da pasta `esp32/`, e um `config.py` com a rede do simulador: `WIFI_SSID = "Wokwi-GUEST"` e `WIFI_SENHA = ""`.
+2. Abra a aba `diagram.json` do projeto e copie o valor de `"env"` que aparece em `attrs` da placa (é a versão do MicroPython do simulador). Substitua o conteúdo da aba pelo `wokwi/diagram.json` deste repositório e cole o `"env"` de volta em `attrs` da placa `esp`. O circuito aparece com display LCD, botão e buzzer ligados.
+3. Crie os arquivos `boot.py`, `main.py`, `fila_offline.py` e `lcd_i2c.py` com o conteúdo da pasta `esp32/`, e um `config.py` com a rede do simulador: `WIFI_SSID = "Wokwi-GUEST"` e `WIFI_SENHA = ""`.
 4. Inicie a simulação.
 
-O simulador roda nos servidores do Wokwi e não alcança o `servidor_teste.py` no seu computador. Sem um endereço público, o token fica sem servidor: as confirmações vão para a fila offline, e o OLED mostra a quantidade guardada. Para testar o fluxo completo no Wokwi, exponha o servidor com um túnel (ex: `cloudflared tunnel --url http://localhost:8000`) e use o endereço `https://...` gerado como `SERVIDOR_URL`.
+O simulador roda nos servidores do Wokwi e não alcança o `servidor_teste.py` no seu computador. Sem um endereço público, o token fica sem servidor: as confirmações vão para a fila offline, e o display mostra a quantidade guardada. Para testar o fluxo completo no Wokwi, exponha o servidor com um túnel (ex: `cloudflared tunnel --url http://localhost:8000`) e use o endereço `https://...` gerado como `SERVIDOR_URL`.
 
 ## Estruturas de dados no ESP32
 

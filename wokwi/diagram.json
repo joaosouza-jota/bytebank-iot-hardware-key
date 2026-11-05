@@ -3,22 +3,103 @@
   "author": "ByteBank Hardware Key",
   "editor": "wokwi",
   "parts": [
-    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": 0, "attrs": {} },
-    { "type": "board-ssd1306", "id": "oled", "top": -105.66, "left": 182.63, "attrs": { "i2cAddress": "0x3c" } },
-    { "type": "wokwi-pushbutton", "id": "botao", "top": 140, "left": 200, "attrs": { "color": "green", "label": "Confirmar" } },
-    { "type": "wokwi-buzzer", "id": "buzzer", "top": 40, "left": 300, "attrs": { "volume": "0.1" } }
+    {
+      "type": "board-esp32-devkit-c-v4",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-lcd1602",
+      "id": "lcd",
+      "top": -140,
+      "left": 160,
+      "attrs": {
+        "pins": "i2c"
+      }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "botao",
+      "top": 140,
+      "left": 200,
+      "attrs": {
+        "color": "green",
+        "label": "Confirmar"
+      }
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "buzzer",
+      "top": 40,
+      "left": 300,
+      "attrs": {
+        "volume": "0.1"
+      }
+    }
   ],
   "connections": [
-    [ "esp:TX", "$serialMonitor:RX", "", [] ],
-    [ "esp:RX", "$serialMonitor:TX", "", [] ],
-    [ "oled:GND", "esp:GND.2", "black", [] ],
-    [ "oled:VCC", "esp:3V3", "red", [] ],
-    [ "oled:SDA", "esp:21", "blue", [] ],
-    [ "oled:SCL", "esp:22", "orange", [] ],
-    [ "botao:1.l", "esp:15", "green", [] ],
-    [ "botao:2.l", "esp:GND.3", "black", [] ],
-    [ "buzzer:2", "esp:4", "purple", [] ],
-    [ "buzzer:1", "esp:GND.3", "black", [] ]
+    [
+      "esp:TX",
+      "$serialMonitor:RX",
+      "",
+      []
+    ],
+    [
+      "esp:RX",
+      "$serialMonitor:TX",
+      "",
+      []
+    ],
+    [
+      "lcd:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "lcd:VCC",
+      "esp:5V",
+      "red",
+      []
+    ],
+    [
+      "lcd:SDA",
+      "esp:22",
+      "blue",
+      []
+    ],
+    [
+      "lcd:SCL",
+      "esp:21",
+      "orange",
+      []
+    ],
+    [
+      "botao:1.l",
+      "esp:15",
+      "green",
+      []
+    ],
+    [
+      "botao:2.l",
+      "esp:GND.3",
+      "black",
+      []
+    ],
+    [
+      "buzzer:2",
+      "esp:4",
+      "purple",
+      []
+    ],
+    [
+      "buzzer:1",
+      "esp:GND.3",
+      "black",
+      []
+    ]
   ],
   "dependencies": {}
 }
