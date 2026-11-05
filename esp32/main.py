@@ -3,7 +3,7 @@
 #
 #O QUE ESTE ARQUIVO FAZ EM LOOP:
 #1. PERGUNTA AO BACKEND SE EXISTE UM PIX DE ALTO VALOR AGUARDANDO CONFIRMAÇÃO (GET /token/pendente)
-#2. SE EXISTIR, MOSTRA O CÓDIGO OTP NO OLED, TOCA O BUZZER E INICIA A CONTAGEM REGRESSIVA
+#2. SE EXISTIR, MOSTRA O CÓDIGO OTP NO DISPLAY LCD, TOCA O BUZZER E INICIA A CONTAGEM REGRESSIVA
 #3. QUANDO O BOTÃO É APERTADO, A CONFIRMAÇÃO ENTRA NA FILA OFFLINE
 #4. A FILA É ENVIADA EM JSON VIA urequests.post() (POST /token/confirmar). SE A REDE CAIR, NADA SE PERDE
 #5. A CADA 30 SEGUNDOS ENVIA TELEMETRIA DO TOKEN (POST /telemetria)
@@ -13,7 +13,7 @@ import sys
 import time
 import network
 import machine
-from machine import Pin, PWM, I2C
+from machine import Pin, SoftI2C
 
 try:
     import urequests as requests
@@ -27,8 +27,11 @@ from fila_offline import FilaOffline
 PINO_BOTAO = 15
 PINO_BUZZER = 4
 PINO_LED = 2
-PINO_SDA = 21
-PINO_SCL = 22
+PINO_SDA = 22
+PINO_SCL = 21
+
+#ENDEREÇO I2C DA PLAQUINHA PCF8574 DO DISPLAY (ENCONTRADO COM i2c.scan())
+ENDERECO_DISPLAY = 0x27
 
 #INTERVALOS DO LOOP PRINCIPAL EM MILISSEGUNDOS
 INTERVALO_CONSULTA = 2000
@@ -58,50 +61,49 @@ led = Pin(PINO_LED, Pin.OUT)
 #BOTÃO COM PULL-UP INTERNO: SOLTO = 1, PRESSIONADO = 0 (IGUAL AO GUIA DA DISCIPLINA)
 botao = Pin(PINO_BOTAO, Pin.IN, Pin.PULL_UP)
 
-#BUZZER NO PWM: A FREQUÊNCIA DEFINE O TOM E O DUTY LIGA (METADE) OU DESLIGA (ZERO) O SOM
-buzzer = PWM(Pin(PINO_BUZZER), freq=2000, duty_u16=0)
+#BUZZER ATIVO: TEM OSCILADOR PRÓPRIO, ENTÃO BASTA LIGAR (1) E DESLIGAR (0) O PINO
+buzzer = Pin(PINO_BUZZER, Pin.OUT, value=0)
 
 
 #O TOKEN CONTINUA FUNCIONANDO SEM O DISPLAY: AS TELAS SAEM SÓ NO TERMINAL SERIAL
-def iniciar_oled():
+def iniciar_display():
     try:
-        from ssd1306 import SSD1306_I2C
-        i2c = I2C(0, scl=Pin(PINO_SCL), sda=Pin(PINO_SDA), freq=400000)
-        return SSD1306_I2C(128, 64, i2c)
+        from lcd_i2c import LCD
+        i2c = SoftI2C(sda=Pin(PINO_SDA), scl=Pin(PINO_SCL), freq=100000)
+        return LCD(i2c, ENDERECO_DISPLAY)
     except Exception as erro:
-        print(f"[AVISO] Display OLED não encontrado ({erro}). Telas só no terminal.")
+        print(f"[AVISO] Display LCD não encontrado ({erro}). Telas só no terminal.")
         return None
 
 
-oled = iniciar_oled()
+display = iniciar_display()
 
 
-#O DISPLAY TEM 128x64 PIXELS: CABEM 7 LINHAS DE ATÉ 16 CARACTERES, SEM ACENTO
-def exibir(linhas):
+#O DISPLAY TEM 2 LINHAS DE 16 CARACTERES, SEM ACENTO.
+#SÓ REESCREVE QUANDO O TEXTO MUDA: O LCD É LENTO E REESCREVER SEM PARAR FARIA A TELA TREMER
+def exibir(linha1, linha2=""):
+    linhas = (linha1, linha2)
     if linhas == estado["ultima_tela"]:
         return
 
     estado["ultima_tela"] = linhas
-    print("[TELA] " + " | ".join(linhas))
+    print(f"[TELA] {linha1} | {linha2}")
 
-    if oled is None:
+    if display is None:
         return
 
     try:
-        oled.fill(0)
-        for numero, linha in enumerate(linhas[:7]):
-            oled.text(linha[:16], 0, numero * 9)
-        oled.show()
+        display.escrever_linha(0, linha1)
+        display.escrever_linha(1, linha2)
     except OSError as erro:
-        print(f"[ERRO] Falha ao escrever no OLED: {erro}")
+        print(f"[ERRO] Falha ao escrever no display: {erro}")
 
 
-def bipar(vezes=1, duracao_ms=120, frequencia=2000):
-    buzzer.freq(frequencia)
+def bipar(vezes=1, duracao_ms=120):
     for _ in range(vezes):
-        buzzer.duty_u16(32768)
+        buzzer.value(1)
         time.sleep_ms(duracao_ms)
-        buzzer.duty_u16(0)
+        buzzer.value(0)
         time.sleep_ms(80)
 
 
@@ -195,18 +197,18 @@ def formatar_reais(valor):
     return ".".join(grupos)
 
 
+#LINHA 2 MOSTRA A REDE E, SE HOUVER, QUANTAS CONFIRMAÇÕES ESPERAM NA FILA OFFLINE
 def tela_aguardando():
-    rede = "Wi-Fi OK" if wlan.isconnected() else "SEM REDE"
-    linhas = ["BYTEBANK KEY", "", "Aguardando PIX", "de alto valor", "", rede]
+    rede = "Aguardando PIX" if wlan.isconnected() else "SEM REDE"
     if not fila.esta_vazia():
-        linhas.append(f"Na fila: {len(fila)}")
-    exibir(linhas)
+        rede = ("Rede OK" if wlan.isconnected() else "SEM REDE") + f" fila:{len(fila)}"
+    exibir("BYTEBANK KEY", rede)
 
 
-def mostrar_resultado(linhas):
+def mostrar_resultado(linha1, linha2=""):
     estado["modo"] = EXIBINDO_RESULTADO
     estado["fim_resultado_ms"] = time.ticks_add(time.ticks_ms(), TEMPO_TELA_RESULTADO)
-    exibir(linhas)
+    exibir(linha1, linha2)
 
 
 #PERGUNTA AO BACKEND SE HÁ UM PIX RETIDO ESPERANDO ESTE TOKEN
@@ -229,21 +231,16 @@ def atualizar_tela_codigo():
 
     if restante_ms <= 0:
         estado["pendente"] = None
-        mostrar_resultado(["BYTEBANK KEY", "", "CODIGO EXPIRADO", "", "PIX cancelado"])
-        bipar(1, 400, 800)
+        mostrar_resultado("CODIGO EXPIRADO", "PIX cancelado")
+        bipar(1, 600)
         return
 
+    #LINHA 1: VALOR E DESTINATÁRIO | LINHA 2: CÓDIGO E SEGUNDOS RESTANTES
     pendente = estado["pendente"]
-    otp = str(pendente["otp"])
-    exibir([
-        "BYTEBANK KEY",
-        f"PIX R$ {formatar_reais(pendente['valor'])}",
-        f"p/ {pendente['destino']}",
-        f"Codigo: {otp[:3]} {otp[3:]}",
-        f"Expira em: {restante_ms // 1000 + 1}s",
-        "",
-        "Aperte o botao",
-    ])
+    exibir(
+        f"R${formatar_reais(pendente['valor'])} {pendente['destino']}",
+        f"Cod {pendente['otp']} {restante_ms // 1000 + 1:>2}s",
+    )
 
 
 #A CONFIRMAÇÃO SEMPRE PASSA PELA FILA, COM OU SEM REDE. ASSIM EXISTE UM ÚNICO CAMINHO DE ENVIO
@@ -267,7 +264,7 @@ def ao_pressionar_botao():
 
     #SE AINDA SOBROU ALGO NA FILA, O ENVIO FALHOU: AVISA QUE FICOU GUARDADO
     if not fila.esta_vazia():
-        mostrar_resultado(["BYTEBANK KEY", "", "SEM CONEXAO", "Confirmacao", "guardada na fila", "", f"Na fila: {len(fila)}"])
+        mostrar_resultado("SEM CONEXAO", f"Guardado fila:{len(fila)}")
 
 
 #ENVIA A FILA DO MAIS ANTIGO PARA O MAIS NOVO (FIFO).
@@ -298,16 +295,16 @@ def tratar_resultado(resposta):
     status = (resposta or {}).get("status", "DESCONHECIDO")
 
     if status == "LIBERADO":
-        mostrar_resultado(["BYTEBANK KEY", "", "PIX LIBERADO", "", "Transferencia", "concluida"])
-        bipar(2, 80, 2500)
+        mostrar_resultado("PIX LIBERADO", "Transf. feita")
+        bipar(2, 80)
     elif status == "EXPIRADO":
-        mostrar_resultado(["BYTEBANK KEY", "", "CODIGO EXPIRADO", "", "PIX cancelado"])
-        bipar(1, 400, 800)
+        mostrar_resultado("CODIGO EXPIRADO", "PIX cancelado")
+        bipar(1, 600)
     elif status == "BLOQUEADO":
-        mostrar_resultado(["BYTEBANK KEY", "", "!! BLOQUEADO !!", "", "Procure seu", "gerente"])
-        bipar(5, 200, 3000)
+        mostrar_resultado("!! BLOQUEADO !!", "Procure gerente")
+        bipar(5, 200)
     else:
-        mostrar_resultado(["BYTEBANK KEY", "", "Resposta:", status[:16]])
+        mostrar_resultado("Resposta:", status)
 
 
 #TELEMETRIA É DESCARTÁVEL: SE FALHAR, NÃO ENTRA NA FILA PARA NÃO OCUPAR O LUGAR DAS CONFIRMAÇÕES
@@ -379,11 +376,11 @@ def executar():
 try:
     executar()
 except KeyboardInterrupt:
-    buzzer.duty_u16(0)
+    buzzer.value(0)
     print("[TOKEN] Interrompido pelo usuário")
 except Exception as erro:
-    buzzer.duty_u16(0)
+    buzzer.value(0)
     sys.print_exception(erro)
-    exibir(["BYTEBANK KEY", "", "ERRO INTERNO", "Reiniciando..."])
+    exibir("ERRO INTERNO", "Reiniciando...")
     time.sleep(5)
     machine.reset()

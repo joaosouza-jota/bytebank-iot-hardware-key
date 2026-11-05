@@ -5,7 +5,7 @@
 #COMO USAR:
 #  python3 backend/servidor_teste.py
 #  NO NAVEGADOR, ABRA http://localhost:8000/teste/novo-pix PARA CRIAR UM PIX RETIDO.
-#  O TOKEN BUSCA O CÓDIGO, EXIBE NO OLED E, AO APERTAR O BOTÃO, ENVIA A CONFIRMAÇÃO.
+#  O TOKEN BUSCA O CÓDIGO, EXIBE NO DISPLAY E, AO APERTAR O BOTÃO, ENVIA A CONFIRMAÇÃO.
 
 import json
 import random
