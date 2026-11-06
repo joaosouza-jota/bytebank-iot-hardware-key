@@ -72,7 +72,8 @@ buzzer = Pin(PINO_BUZZER, Pin.OUT, value=0)
 def iniciar_display():
     try:
         from lcd_i2c import LCD
-        i2c = SoftI2C(sda=Pin(PINO_SDA), scl=Pin(PINO_SCL), freq=100000)
+        #50 kHz: MAIS LENTO, MAS MAIS RESISTENTE A RUÍDO NOS FIOS LONGOS DOS JUMPERS
+        i2c = SoftI2C(sda=Pin(PINO_SDA), scl=Pin(PINO_SCL), freq=50000)
         return LCD(i2c, ENDERECO_DISPLAY)
     except Exception as erro:
         print(f"[AVISO] Display LCD não encontrado ({erro}). Telas só no terminal.")
@@ -96,6 +97,7 @@ def exibir(linha1, linha2=""):
         return
 
     try:
+        display.sincronizar()
         display.escrever_linha(0, linha1)
         display.escrever_linha(1, linha2)
     except OSError as erro:

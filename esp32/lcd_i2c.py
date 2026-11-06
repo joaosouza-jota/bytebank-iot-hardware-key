@@ -27,9 +27,16 @@ class LCD:
         self.colunas = colunas
         self.luz = LUZ_DE_FUNDO
 
-        #SEQUÊNCIA DE INICIALIZAÇÃO DO DATASHEET: ENTRA EM 8 BITS TRÊS VEZES E DEPOIS PASSA PARA 4 BITS
         self._escrever_byte(self.luz)
         time.sleep_ms(50)
+        self.sincronizar()
+        self.limpar()
+
+    #SEQUÊNCIA DE INICIALIZAÇÃO DO DATASHEET: ENTRA EM 8 BITS TRÊS VEZES E DEPOIS PASSA PARA 4 BITS.
+    #SE UMA METADE DE 4 BITS SE PERDER (RUÍDO DO WI-FI, MAU CONTATO), O LCD PASSA A JUNTAR METADES
+    #ERRADAS E TODO O TEXTO SAI EMBARALHADO. REPETIR ESTA SEQUÊNCIA RECOLOCA O LCD NO COMPASSO
+    #SEM APAGAR A TELA, ENTÃO O main.py CHAMA ANTES DE CADA TROCA DE TELA
+    def sincronizar(self):
         for _ in range(3):
             self._enviar_metade(0x03, 0)
             time.sleep_ms(5)
@@ -37,7 +44,6 @@ class LCD:
 
         for comando in (MODO_4_BITS_2_LINHAS, LIGAR_SEM_CURSOR, ESCRITA_PARA_DIREITA):
             self._comando(comando)
-        self.limpar()
 
     def _escrever_byte(self, valor):
         self.i2c.writeto(self.endereco, bytes([valor]))
