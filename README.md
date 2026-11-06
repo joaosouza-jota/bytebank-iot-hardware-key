@@ -100,7 +100,7 @@ sequenceDiagram
 | Display LCD (adaptador I2C) | VCC / GND | VIN (5 V) / GND |
 | Display LCD (adaptador I2C) | SDA | GPIO 22 |
 | Display LCD (adaptador I2C) | SCL | GPIO 21 |
-| Botão | Um terminal / outro terminal | GPIO 15 / GND (pull-up interno: pressionado = 0, solto = 1) |
+| Botão | Um terminal / terminal diagonal | GPIO 15 / 3V3 (pull-down interno: pressionado = 1, solto = 0) |
 | Buzzer ativo | Positivo (perna longa) / negativo | GPIO 4 / GND |
 | LED interno | | GPIO 2 (indica status da conexão Wi-Fi) |
 
@@ -111,7 +111,8 @@ Observações da montagem na bancada:
 - **O LCD precisa de 5 V.** Com 3,3 V a luz de fundo acende, mas as letras não aparecem. Se mesmo no VIN as letras não surgirem, ajuste o contraste no potenciômetro azul do adaptador I2C.
 - **No adaptador I2C a ordem dos pinos é GND, VCC, SDA, SCL.** Os fios foram ligados com SDA no GPIO 22 e SCL no GPIO 21, e o código usa essa ordem. O endereço `0x27` e os pinos foram confirmados com `i2c.scan()`.
 - **O buzzer é ativo:** tem oscilador interno e apita só de receber tensão, então o código apenas liga e desliga o pino. Ele tem polaridade: invertido, fica mudo.
-- **O ESP32 da equipe tem só 2 pinos GND.** O botão e o buzzer dividem o mesmo GND.
+- **O ESP32 da equipe tem só 2 pinos GND**, um para o display e outro para o buzzer. Por isso o botão liga o GPIO 15 ao **3V3** (livre desde que o display passou para o VIN), e o código usa o pull-down interno: o pino fica em 0 com o botão solto e vai a 1 quando ele é apertado.
+- O buzzer está ligado direto nos pinos do ESP32, sem passar pela protoboard.
 - Os jumpers são macho-fêmea: a ponta fêmea vai no pino do ESP32 e a macho na protoboard, por isso o ESP32 fica fora da protoboard.
 
 ## Estrutura do repositório
@@ -235,6 +236,29 @@ Eles conferem a ordem FIFO, a consulta sem remoção, o descarte do mais antigo 
 
 ![Circuito do token montado na bancada](docs/circuito-bancada.jpg)
 -->
+
+### Fluxo completo na bancada (05/11)
+
+Com o ESP32 conectado ao hotspot do celular e o `servidor_teste.py` rodando no notebook, um PIX de teste foi criado, o token exibiu o código no display, e o botão foi apertado. Registro do servidor:
+
+```text
+[21:32:01] POST /telemetria <- {"rssi_dbm": -36, "fila_offline": 0, "memoria_livre": 115728, "ligado_ha_s": 120, "dispositivo": "token-01", "eventos_descartados": 0}
+[21:32:02] PIX 3 RETIDO | R$ 15000.00 | código 953094
+[21:32:03] Token token-01 buscou o PIX 3
+[21:32:14] POST /token/confirmar <- {"idade_ms": 142, "dispositivo": "token-01", "pix_id": 3}
+[21:32:14] PIX 3 LIBERADO | botão apertado às 21:32:14 (há 0.1s)
+```
+
+Problemas encontrados na montagem e como foram resolvidos:
+
+| Sintoma | Causa | Solução |
+|---|---|---|
+| Display com luz acesa e sem letras | LCD alimentado com 3,3 V | VCC no VIN (5 V) |
+| Display respondendo com SDA e SCL invertidos | Ordem dos pinos do adaptador I2C (GND, VCC, SDA, SCL) | Código passou a usar SDA no GPIO 22 e SCL no GPIO 21 |
+| Buzzer mudo | Buzzer ativo com a perna + fora da coluna do jumper do GPIO 4 | Buzzer ligado direto no GPIO 4 e no GND |
+| Botão nunca detectado | Sem pino GND livre para o botão | Botão ligado ao 3V3 com pull-down interno |
+| ESP32 não encontra o hotspot do iPhone | Hotspot em 5 GHz | *Maximizar Compatibilidade* ativado (2,4 GHz) e tela do Acesso Pessoal aberta durante a conexão |
+| `Wifi Internal State Error` ao reiniciar a placa | Tentativa de conexão anterior pela metade | `boot.py` e `main.py` chamam `disconnect()` antes de `connect()` |
 
 ### Conexão Wi-Fi no simulador (22/10)
 
