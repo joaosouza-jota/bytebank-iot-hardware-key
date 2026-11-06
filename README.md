@@ -231,11 +231,11 @@ python3 -m unittest discover tests
 
 Eles conferem a ordem FIFO, a consulta sem remoção, o descarte do mais antigo com a fila cheia e a volta dos índices no vetor circular.
 
-<!-- ENTREGA 2: INSERIR AQUI A FOTO OU GIF DO CIRCUITO MONTADO NA BANCADA
 ### Circuito montado na bancada
 
-![Circuito do token montado na bancada](docs/circuito-bancada.jpg)
--->
+ESP32 conectado ao hotspot (LED azul aceso), display LCD 16x2 na tela inicial do token, botão de confirmação na protoboard e jumpers macho-fêmea ligando cada componente aos pinos do ESP32.
+
+<img src="docs/circuito-bancada.jpg" alt="Circuito do token montado na bancada: ESP32, display LCD 16x2, protoboard com o botão e jumpers" width="480">
 
 ### Fluxo completo na bancada (05/11)
 
@@ -258,6 +258,7 @@ Problemas encontrados na montagem e como foram resolvidos:
 | Buzzer mudo | Buzzer ativo com a perna + fora da coluna do jumper do GPIO 4 | Buzzer ligado direto no GPIO 4 e no GND |
 | Botão nunca detectado | Sem pino GND livre para o botão | Botão ligado ao 3V3 com pull-down interno |
 | ESP32 não encontra o hotspot do iPhone | Hotspot em 5 GHz | *Maximizar Compatibilidade* ativado (2,4 GHz) e tela do Acesso Pessoal aberta durante a conexão |
+| Linha de baixo do display com caracteres embaralhados | Uma metade de 4 bits perdida na transmissão (ruído do Wi-Fi ou dos jumpers) desalinha o LCD | I2C reduzido para 50 kHz e `sincronizar()` antes de cada troca de tela |
 | `Wifi Internal State Error` ao reiniciar a placa | Tentativa de conexão anterior pela metade | `boot.py` e `main.py` chamam `disconnect()` antes de `connect()` |
 
 ### Conexão Wi-Fi no simulador (22/10)
