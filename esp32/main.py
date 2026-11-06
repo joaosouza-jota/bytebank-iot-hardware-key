@@ -58,8 +58,11 @@ EXIBINDO_RESULTADO = "EXIBINDO_RESULTADO"
 
 led = Pin(PINO_LED, Pin.OUT)
 
-#BOTÃO COM PULL-UP INTERNO: SOLTO = 1, PRESSIONADO = 0 (IGUAL AO GUIA DA DISCIPLINA)
-botao = Pin(PINO_BOTAO, Pin.IN, Pin.PULL_UP)
+#BOTÃO LIGADO ENTRE O GPIO 15 E O 3V3, COM PULL-DOWN INTERNO: SOLTO = 0, PRESSIONADO = 1.
+#O ESP32 DA EQUIPE TEM SÓ 2 PINOS GND (DISPLAY E BUZZER), ENTÃO O BOTÃO USA O 3V3, QUE FICOU LIVRE
+botao = Pin(PINO_BOTAO, Pin.IN, Pin.PULL_DOWN)
+BOTAO_SOLTO = 0
+BOTAO_APERTADO = 1
 
 #BUZZER ATIVO: TEM OSCILADOR PRÓPRIO, ENTÃO BASTA LIGAR (1) E DESLIGAR (0) O PINO
 buzzer = Pin(PINO_BUZZER, Pin.OUT, value=0)
@@ -107,12 +110,12 @@ def bipar(vezes=1, duracao_ms=120):
         time.sleep_ms(80)
 
 
-#DETECTA O MOMENTO EM QUE O BOTÃO É APERTADO (BORDA DE DESCIDA), IGNORANDO O REPIQUE MECÂNICO
+#DETECTA O MOMENTO EM QUE O BOTÃO É APERTADO (BORDA DE SUBIDA), IGNORANDO O REPIQUE MECÂNICO
 def botao_foi_pressionado():
     valor_atual = botao.value()
     pressionou = False
 
-    if valor_atual == 0 and estado["botao_anterior"] == 1:
+    if valor_atual == BOTAO_APERTADO and estado["botao_anterior"] == BOTAO_SOLTO:
         if time.ticks_diff(time.ticks_ms(), estado["ultimo_toque"]) > INTERVALO_MINIMO_BOTAO:
             estado["ultimo_toque"] = time.ticks_ms()
             pressionou = True
@@ -133,6 +136,7 @@ def tentar_reconectar():
     print("[WI-FI] Sem conexão. Tentando reconectar...")
     try:
         wlan.active(True)
+        wlan.disconnect()
         wlan.connect(config.WIFI_SSID, config.WIFI_SENHA)
     except OSError as erro:
         print(f"[ERRO] Falha no rádio Wi-Fi: {erro}")
@@ -181,7 +185,7 @@ estado = {
     "prazo_ms": 0,
     "fim_resultado_ms": 0,
     "ultima_tela": None,
-    "botao_anterior": 1,
+    "botao_anterior": BOTAO_SOLTO,
     "ultimo_toque": 0,
 }
 

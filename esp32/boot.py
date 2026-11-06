@@ -33,6 +33,13 @@ def conectar_wifi(ssid, senha):
     if wlan.isconnected():
         return wlan
 
+    #ENCERRA UMA TENTATIVA QUE TENHA FICADO PELA METADE (EX: PLACA REINICIADA NO MEIO DA CONEXÃO).
+    #SEM ISSO O RÁDIO RESPONDE "Wifi Internal State Error" NA PRÓXIMA CHAMADA DE connect()
+    try:
+        wlan.disconnect()
+    except OSError:
+        pass
+
     for tentativa in range(1, MAX_TENTATIVAS + 1):
         print(f"[WI-FI] Conectando em '{ssid}' (tentativa {tentativa}/{MAX_TENTATIVAS})...")
 
