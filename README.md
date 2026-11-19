@@ -14,9 +14,12 @@ Projeto Prático da AV2 da disciplina **BD015 (Algoritmo e Estrutura de Dados)**
 
 1. O cliente solicita um PIX acima de R$ 10.000,00. O backend grava a transferência com status `RETIDO` e gera um código OTP de 6 dígitos com validade de 60 segundos.
 2. O ESP32 consulta o backend, exibe o código no display LCD e toca o buzzer.
-3. O titular informa o código no dashboard e aperta o botão físico de confirmação no token.
-4. O backend valida o código em O(1) na tabela hash de tokens. Se estiver correto, a transferência é liberada e o débito e o crédito são gravados numa única transação no banco.
+3. O titular digita no dashboard o código que aparece no display. O backend valida em O(1) na tabela hash de tokens.
+4. Com o código aceito, o titular aperta o botão físico do token. Só então a transferência é liberada, e o débito, o crédito, o status e o log de auditoria são gravados numa única transação no banco.
 5. Cada código errado entra na fila de tentativas. Três falhas em cinco minutos bloqueiam a conta e disparam o alarme do token.
+6. O dashboard mostra a telemetria do token em tempo real e envia comandos para o ESP32: acionar o alarme, exibir uma mensagem no display e reiniciar a placa.
+
+Os dois fatores são complementares: o código prova que o cliente está vendo o token, e o botão prova que ele está com o token na mão e quer a transferência.
 
 ## Arquitetura
 
@@ -41,6 +44,8 @@ flowchart LR
         CONTAS[(contas)]
         PIX[(transferencias_pix)]
         LOGS[(logs_autenticacao)]
+        TELEM[(telemetria)]
+        COMANDOS[(comandos)]
     end
 
     subgraph DASH["4. Dashboard (Streamlit)"]
@@ -52,7 +57,7 @@ flowchart LR
     API -- "código OTP e comandos" --> EDGE
     API -- "SQL" --> BD
     BD -- "consultas" --> DASH
-    DASH -- "solicitar PIX, informar código,<br/>desbloquear token" --> API
+    DASH -- "solicitar PIX, informar código,<br/>enviar comandos, desbloquear conta" --> API
 ```
 
 ### Fluxo de uma transferência de alto valor
@@ -73,14 +78,20 @@ sequenceDiagram
     API-->>Token: Código OTP
     Token->>Token: Exibe no LCD e toca o buzzer
     Cliente->>Dashboard: Digita o código exibido
-    Cliente->>Token: Aperta o botão de confirmação
-    Token->>API: POST /token/confirmar
-    API->>API: Busca O(1) e compara o código
+    Dashboard->>API: POST /pix/{id}/codigo
+    API->>API: Busca O(1) na tabela hash e compara o código
     alt Código correto
-        API->>BD: Débito + crédito na mesma transação, status LIBERADO
+        API-->>Dashboard: AGUARDANDO_BOTAO
+        Cliente->>Token: Aperta o botão de confirmação
+        Token->>API: POST /token/confirmar
+        API->>BD: Débito + crédito + status LIBERADO + log, numa transação
+        API-->>Token: LIBERADO
     else Código errado
-        API->>API: Registra falha na fila de tentativas
-        API->>BD: Após 3 falhas, status BLOQUEADO
+        API->>API: Registra a falha na fila de tentativas
+        API->>BD: Na 3ª falha em 5 min: conta e PIX BLOQUEADOS
+        API->>BD: Comando de alarme na fila do token
+        Token->>API: GET /comandos
+        Token->>Token: Alarme e BLOQUEADO no display
     end
 ```
 
@@ -120,10 +131,10 @@ Observações da montagem na bancada:
 | Pasta | Conteúdo | Entrega |
 |---|---|---|
 | `esp32/` | `boot.py` (conexão Wi-Fi), `main.py` (botão, display, buzzer e envio HTTP), `fila_offline.py` (fila circular) e `lcd_i2c.py` (driver do display LCD) | 29/10 e 05/11 |
-| `backend/` | `servidor_teste.py` (simula o backend para validar o ESP32). Depois: API em FastAPI com a tabela hash de tokens e a fila de tentativas | 05/11 e 12/11 |
-| `database/` | `schema.sql` com as tabelas e a carga inicial de teste | 12/11 |
-| `dashboard/` | Aplicação Streamlit de monitoramento e controle remoto | 19/11 |
-| `tests/` | Testes automatizados que rodam no computador, sem a placa | 05/11 |
+| `backend/` | `app.py` (API em FastAPI), `estruturas.py` (tabela hash de tokens e fila de tentativas) e `db.py` (conexão e transações). `servidor_teste.py` é o servidor simplificado usado na Entrega 2 | 05/11 e 12/11 |
+| `database/` | `schema.sql` (modelo relacional) e `seed.sql` (carga inicial de teste). O banco `bytebank.db` é criado pela API e fica fora do Git | 12/11 |
+| `dashboard/` | `app.py`: aplicação Streamlit de monitoramento e controle remoto | 19/11 |
+| `tests/` | Testes automatizados da fila do ESP32 e da API, que rodam no computador sem a placa | 05/11 e 19/11 |
 | `wokwi/` | `diagram.json` com o circuito completo para o simulador Wokwi | 05/11 |
 | `docs/` | Imagens e evidências de teste usadas neste README | — |
 
@@ -168,9 +179,45 @@ O arquivo `.vscode/settings.json` define `micropico.syncFolder` como `esp32`, en
 2. Abra cada arquivo da pasta `esp32/` (`boot.py`, `config.py`, `main.py`, `fila_offline.py` e `lcd_i2c.py`) e salve em *Arquivo → Salvar como → Dispositivo MicroPython*, com o mesmo nome.
 3. Reinicie o ESP32. O Shell mostra o IP recebido e as mensagens do token.
 
-### 4. Rodar o servidor de teste e confirmar um PIX
+### 4. Instalar as dependências do computador
 
-O `servidor_teste.py` simula o backend até a API real ficar pronta. Ele usa só a biblioteca padrão do Python, então não precisa instalar nada.
+A API, o dashboard e os testes rodam no Python 3.9 ou mais novo:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+No Windows, use `.venv\Scripts\pip` e `.venv\Scripts\uvicorn` no lugar de `.venv/bin/...`.
+
+### 5. Subir a API e o dashboard
+
+Em dois terminais, na raiz do repositório:
+
+```bash
+.venv/bin/uvicorn backend.app:app --host 0.0.0.0 --port 8000
+```
+
+```bash
+.venv/bin/streamlit run dashboard/app.py
+```
+
+- Na primeira execução, a API cria o banco `database/bytebank.db` a partir do `schema.sql` e do `seed.sql`. Para voltar ao estado inicial, basta apagar esse arquivo.
+- A documentação interativa da API fica em `http://localhost:8000/docs`.
+- O dashboard abre em `http://localhost:8501`.
+- O `--host 0.0.0.0` é obrigatório: sem ele, a API só aceita conexões do próprio computador, e o ESP32 fica de fora.
+
+### 6. Fluxo completo do PIX pelo dashboard
+
+1. Com o ESP32 ligado na mesma rede do computador, o cartão **Token** no topo do dashboard fica 🟢 Online, e a aba **Telemetria** passa a desenhar os gráficos.
+2. Na aba **PIX**, envie um PIX da Ana para o Bruno acima de R$ 10.000. Ele aparece em *PIX aguardando o token*.
+3. O token apita e mostra o código no display. Digite o código no dashboard e clique em **Validar código**.
+4. Aperte o botão do token. O display mostra `PIX LIBERADO`, e os saldos mudam na aba **Auditoria**.
+5. Na aba **Comandos para o ESP32**, acione o alarme, envie uma mensagem ou reinicie a placa.
+
+### Servidor de teste simplificado (Entrega 2)
+
+O `servidor_teste.py` simulou o backend antes da API real ficar pronta. Ele usa só a biblioteca padrão do Python e continua no repositório como registro da Entrega 2.
 
 1. Descubra o IP do computador na rede do ESP32 e coloque em `SERVIDOR_URL` no `config.py` (ex: `http://192.168.0.10:8000`). Nunca use `localhost`: para o ESP32, `localhost` é ele mesmo.
    - **macOS:** `ipconfig getifaddr en0`
@@ -219,6 +266,114 @@ A telemetria (sinal do Wi-Fi, memória livre, tamanho da fila) **não** entra na
 | `POST /token/confirmar` | Ao apertar o botão (via fila) | `{"dispositivo": "token-01", "pix_id": 1, "idade_ms": 149}` |
 | `POST /telemetria` | A cada 30 s | `{"dispositivo": "token-01", "rssi_dbm": -55, "memoria_livre": 98304, "fila_offline": 0, "eventos_descartados": 0, "ligado_ha_s": 31}` |
 
+## Backend e banco de dados
+
+### Rotas da API
+
+| Rota | Quem chama | O que faz |
+|---|---|---|
+| `POST /pix` | Dashboard | Até R$ 10.000 transfere na hora (`CONCLUIDO`). Acima disso grava `RETIDO` e gera o código na tabela hash. O código não volta na resposta: só aparece no token |
+| `GET /token/pendente?dispositivo=` | ESP32 | Devolve o PIX retido mais antigo daquele token, com o código e os segundos restantes |
+| `POST /pix/{id}/codigo` | Dashboard | Valida o código digitado. Responde `AGUARDANDO_BOTAO`, `CODIGO_INCORRETO` (com as tentativas restantes), `BLOQUEADO` ou `EXPIRADO` |
+| `POST /token/confirmar` | ESP32 | Botão apertado. Com o código já validado, libera o PIX numa transação. Sem o código, responde `AGUARDANDO_CODIGO` |
+| `POST /telemetria` | ESP32 | Grava uma leitura de sinal, memória e fila offline (a cada 10 s) |
+| `GET /comandos?dispositivo=` | ESP32 | Lista os comandos pendentes, do mais antigo para o mais novo |
+| `POST /comandos/{id}/executado` | ESP32 | Marca o comando como executado |
+| `POST /comandos` | Dashboard | Cria um comando: `ALARME`, `MENSAGEM` ou `REINICIAR` |
+| `POST /contas/{id}/desbloquear` | Dashboard | Desbloqueio pelo gerente: zera a fila de tentativas e avisa o token |
+
+O FastAPI valida cada JSON antes de chegar na regra de negócio: valor negativo, código que não tem 6 dígitos ou tipo de comando desconhecido voltam com erro `422`.
+
+### Estruturas de dados no backend
+
+- **Tabela hash de tokens** (`TabelaTokens`, em `estruturas.py`): dicionário `pix_id → código`. A validação do código digitado vai direto na posição da chave, em O(1), sem percorrer os outros PIX pendentes. Uma segunda tabela hash, `dispositivo → fila de PIX`, entrega ao ESP32 o pendente mais antigo. O código é gerado com `secrets` (gerador criptográfico) e comparado com `hmac.compare_digest`, em tempo constante.
+- **Fila de tentativas** (`FilaTentativas`): para cada conta, uma `deque` com o horário de cada código errado. Antes de contar, as falhas com mais de 5 minutos saem pela frente da fila (janela deslizante, `popleft` em O(1)). Na 3ª falha dentro da janela, a conta é bloqueada.
+- **Tabela hash de chaves PIX**: `chave → conta`, carregada quando a API sobe. Achar o destino de um PIX é O(1).
+
+Os códigos ficam **só na memória** da API, nunca no banco: quem copiar o arquivo do banco não leva nenhum código válido. Em contrapartida, se a API reiniciar, os PIX retidos perdem o código, e por isso ela os marca como `EXPIRADO` ao subir.
+
+### Atualização atômica
+
+O débito, o crédito, a mudança de status e o log de auditoria acontecem dentro de uma única transação (`BEGIN IMMEDIATE ... COMMIT`, em `db.transacao`). Se qualquer passo falhar, nada é gravado. O débito usa `UPDATE contas SET saldo = saldo - ? WHERE id = ? AND saldo >= ?`: o saldo é conferido no mesmo comando que debita, então um PIX que esperou o token enquanto outro gastava o dinheiro é recusado (`RECUSADO`) em vez de deixar a conta negativa. O banco também protege isso com `CHECK (saldo >= 0)`.
+
+### Modelo relacional
+
+```mermaid
+erDiagram
+    dispositivos ||--o{ contas : "token da conta"
+    contas ||--o{ transferencias_pix : "origem / destino"
+    transferencias_pix ||--o{ logs_autenticacao : "auditoria"
+    dispositivos ||--o{ telemetria : "envia"
+    dispositivos ||--o{ comandos : "recebe"
+    dispositivos {
+        text id PK
+        text descricao
+        text ultimo_contato
+    }
+    contas {
+        int id PK
+        text titular
+        text cpf UK
+        text chave_pix UK
+        real saldo
+        text dispositivo_id FK
+        int bloqueada
+    }
+    transferencias_pix {
+        int id PK
+        int conta_origem_id FK
+        int conta_destino_id FK
+        real valor
+        text status
+        text expira_em
+        text finalizado_em
+    }
+    logs_autenticacao {
+        int id PK
+        int pix_id FK
+        int conta_id FK
+        text evento
+        text resultado
+        text registrado_em
+    }
+    telemetria {
+        int id PK
+        text dispositivo_id FK
+        int rssi_dbm
+        int memoria_livre
+        int fila_offline
+        text recebido_em
+    }
+    comandos {
+        int id PK
+        text dispositivo_id FK
+        text tipo
+        text parametro
+        text status
+        text executado_em
+    }
+```
+
+Status de uma transferência: `CONCLUIDO` (até R$ 10.000), `RETIDO` (aguardando o token), `LIBERADO`, `EXPIRADO`, `BLOQUEADO` e `RECUSADO` (saldo insuficiente na hora da liberação).
+
+## Dashboard
+
+O dashboard lê o banco direto, em modo somente leitura, e se atualiza sozinho a cada 2 segundos (`st.fragment(run_every="2s")`). Toda ação passa pela API, que é quem aplica as regras de negócio.
+
+| Aba | Conteúdo |
+|---|---|
+| Topo | Token online ou offline (último contato há menos de 30 s), sinal Wi-Fi, memória livre, fila offline e tempo ligado |
+| Telemetria | Gráficos do sinal, da memória e da fila offline ao longo das últimas leituras |
+| PIX | Solicitar PIX, digitar o código do token e acompanhar as últimas transferências |
+| Comandos para o ESP32 | Acionar alarme, mensagem no display (até 32 caracteres; os acentos são removidos porque o LCD não tem), reiniciar a placa, desbloquear conta e histórico dos comandos |
+| Auditoria | Saldos das contas e log de autenticação |
+
+### Como o comando chega ao ESP32
+
+O ESP32 não recebe conexões: a cada 2 segundos ele pergunta à API se há comandos na fila (`GET /comandos`). O comando é confirmado (`POST /comandos/{id}/executado`) **antes** de ser executado. Se fosse depois, um `REINICIAR` nunca seria confirmado, voltaria na próxima consulta e reiniciaria a placa em loop. Se a confirmação falhar por causa da rede, o token não executa e tenta de novo no ciclo seguinte.
+
+A própria API também usa essa fila para falar com o token: quando a conta é bloqueada, ela coloca um `RESULTADO BLOQUEADO`, e o token toca o alarme mesmo estando no meio da contagem do código. No desbloqueio, coloca um `DESBLOQUEADO`.
+
 ## Testes
 
 ### Testes automatizados da fila
@@ -230,6 +385,18 @@ python3 -m unittest discover tests
 ```
 
 Eles conferem a ordem FIFO, a consulta sem remoção, o descarte do mais antigo com a fila cheia e a volta dos índices no vetor circular.
+
+### Testes automatizados da API
+
+O mesmo comando roda também os 14 testes de `tests/test_api.py`. Cada teste faz o papel do dashboard e do ESP32, chamando as mesmas rotas que eles chamam, num banco temporário. O relógio da API é substituído, então a expiração de 60 segundos e a janela de 5 minutos são testadas sem esperar. Os testes cobrem:
+
+- PIX até o limite transferido na hora e validações do pedido (chave inexistente, mesma conta, saldo insuficiente, valor negativo, conta sem token);
+- fluxo completo: código no dashboard, botão no token, saldos atualizados;
+- botão antes do código não libera, e o token continua mostrando o mesmo código;
+- reenvio da mesma confirmação pela fila offline não debita duas vezes;
+- expiração do código e clique dentro do prazo que chegou atrasado pela fila offline;
+- bloqueio na 3ª falha, com o alarme enviado ao token, e falhas antigas saindo da janela deslizante;
+- desbloqueio pelo gerente, telemetria, comandos e PIX retido que expira quando a API reinicia.
 
 ### Circuito montado na bancada
 
