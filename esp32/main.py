@@ -6,7 +6,8 @@
 #2. SE EXISTIR, MOSTRA O CÓDIGO OTP NO DISPLAY LCD, TOCA O BUZZER E INICIA A CONTAGEM REGRESSIVA
 #3. QUANDO O BOTÃO É APERTADO, A CONFIRMAÇÃO ENTRA NA FILA OFFLINE
 #4. A FILA É ENVIADA EM JSON VIA urequests.post() (POST /token/confirmar). SE A REDE CAIR, NADA SE PERDE
-#5. A CADA 30 SEGUNDOS ENVIA TELEMETRIA DO TOKEN (POST /telemetria)
+#5. A CADA 10 SEGUNDOS ENVIA TELEMETRIA DO TOKEN (POST /telemetria)
+#6. BUSCA OS COMANDOS DO DASHBOARD (GET /comandos): ALARME, MENSAGEM, REINICIAR, AVISOS DA API
 
 import gc
 import sys
@@ -35,9 +36,10 @@ ENDERECO_DISPLAY = 0x27
 
 #INTERVALOS DO LOOP PRINCIPAL EM MILISSEGUNDOS
 INTERVALO_CONSULTA = 2000
-INTERVALO_TELEMETRIA = 30000
+INTERVALO_TELEMETRIA = 10000
 INTERVALO_RECONEXAO = 10000
 TEMPO_TELA_RESULTADO = 4000
+TEMPO_TELA_MENSAGEM = 8000
 INTERVALO_MINIMO_BOTAO = 300
 
 #TEMPO MÁXIMO DE ESPERA POR UMA RESPOSTA HTTP, EM SEGUNDOS
@@ -211,9 +213,9 @@ def tela_aguardando():
     exibir("BYTEBANK KEY", rede)
 
 
-def mostrar_resultado(linha1, linha2=""):
+def mostrar_resultado(linha1, linha2="", duracao_ms=TEMPO_TELA_RESULTADO):
     estado["modo"] = EXIBINDO_RESULTADO
-    estado["fim_resultado_ms"] = time.ticks_add(time.ticks_ms(), TEMPO_TELA_RESULTADO)
+    estado["fim_resultado_ms"] = time.ticks_add(time.ticks_ms(), duracao_ms)
     exibir(linha1, linha2)
 
 
@@ -309,8 +311,52 @@ def tratar_resultado(resposta):
     elif status == "BLOQUEADO":
         mostrar_resultado("!! BLOQUEADO !!", "Procure gerente")
         bipar(5, 200)
+    elif status == "AGUARDANDO_CODIGO":
+        #O BOTÃO SÓ VALE DEPOIS DO CÓDIGO. AO VOLTAR PARA A ESPERA, O TOKEN BUSCA O MESMO PIX E MOSTRA O CÓDIGO DE NOVO
+        mostrar_resultado("DIGITE O CODIGO", "no dashboard")
+        bipar(1, 60)
+    elif status == "RECUSADO":
+        mostrar_resultado("PIX RECUSADO", "Saldo insuf.")
+        bipar(1, 600)
     else:
         mostrar_resultado("Resposta:", status)
+
+
+#COMANDOS DA FILA DO BACKEND: VÊM DO DASHBOARD (ALARME, MENSAGEM, REINICIAR) OU DA PRÓPRIA API
+#(RESULTADO DE UM PIX, AVISO DE DESBLOQUEIO). SÃO EXECUTADOS NA ORDEM EM QUE FORAM CRIADOS
+def processar_comandos():
+    resposta = buscar_json(f"/comandos?dispositivo={config.ID_DISPOSITIVO}")
+    if not resposta:
+        return
+
+    for comando in resposta.get("comandos", []):
+        tipo = comando["tipo"]
+        parametro = comando.get("parametro") or ""
+
+        #CONFIRMA ANTES DE EXECUTAR: DEPOIS DE UM REINICIAR NÃO HAVERIA COMO CONFIRMAR, E O COMANDO
+        #VOLTARIA NA PRÓXIMA CONSULTA, REINICIANDO A PLACA EM LOOP. SE A CONFIRMAÇÃO FALHAR, TENTA DE NOVO DEPOIS
+        confirmado, _ = enviar_json(f"/comandos/{comando['id']}/executado", {})
+        if not confirmado:
+            break
+        print(f"[COMANDO] {tipo} {parametro}")
+
+        if tipo == "ALARME":
+            mostrar_resultado("!! ALARME !!", "Acionado remoto")
+            bipar(6, 250)
+        elif tipo == "MENSAGEM":
+            mostrar_resultado(parametro[:16], parametro[16:32], TEMPO_TELA_MENSAGEM)
+            bipar(1, 80)
+        elif tipo == "DESBLOQUEADO":
+            mostrar_resultado("CONTA LIBERADA", "pelo gerente")
+            bipar(2, 80)
+        elif tipo == "RESULTADO":
+            estado["pendente"] = None
+            tratar_resultado({"status": parametro})
+        elif tipo == "REINICIAR":
+            exibir("REINICIANDO...", "comando remoto")
+            bipar(1, 300)
+            time.sleep(1)
+            machine.reset()
 
 
 #TELEMETRIA É DESCARTÁVEL: SE FALHAR, NÃO ENTRA NA FILA PARA NÃO OCUPAR O LUGAR DAS CONFIRMAÇÕES
@@ -354,6 +400,7 @@ def executar():
             if time.ticks_diff(agora, ultima_consulta) >= INTERVALO_CONSULTA:
                 ultima_consulta = agora
                 esvaziar_fila()
+                processar_comandos()
                 if estado["modo"] == AGUARDANDO:
                     consultar_pendente()
 

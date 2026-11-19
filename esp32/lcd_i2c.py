@@ -73,4 +73,6 @@ class LCD:
         self._comando(INICIO_LINHA[numero])
         texto = (texto + " " * self.colunas)[:self.colunas]
         for caractere in texto:
-            self._enviar(ord(caractere), RS)
+            codigo = ord(caractere)
+            #FORA DA TABELA ASCII (ACENTOS, EMOJIS) O LCD MOSTRARIA LIXO: TROCA POR "?"
+            self._enviar(codigo if 32 <= codigo <= 126 else 63, RS)
