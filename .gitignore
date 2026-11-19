@@ -10,3 +10,7 @@ __pycache__/
 
 #ARQUIVOS DO SISTEMA
 .DS_Store
+
+#ARQUIVOS AUXILIARES DO SQLITE NO MODO WAL
+*.db-wal
+*.db-shm
